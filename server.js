@@ -1,4 +1,4 @@
-// server.js - Backend API để fetch giá vàng
+// server.js - Backend API với Supabase Database
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -9,22 +9,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Supabase client
+// Dùng service_role key cho backend (có quyền INSERT)
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // Lưu trong .env, KHÔNG commit
+  process.env.SUPABASE_URL || 'YOUR_SUPABASE_URL',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || 'YOUR_SERVICE_ROLE_KEY'
 );
 
-// Cho phép CORS
 app.use(cors());
 app.use(express.json());
-
-// Cache để tránh fetch quá nhiều
-let cache = {
-  data: null,
-  timestamp: null
-};
-
-const CACHE_DURATION = 30 * 60 * 1000; // 30 phút
 
 // Lấy tất cả lịch sử giá
 app.get('/api/gold-prices/history', async (req, res) => {
@@ -125,23 +117,37 @@ app.post('/api/gold-prices/fetch', async (req, res) => {
 
     const displayTime = updateTime || new Date().toLocaleString('vi-VN');
 
-    // Chuẩn bị dữ liệu để insert
+    // Debug: Log tất cả keys để xem tên thực tế
+    console.log('📊 Parsed price keys:');
+    Object.keys(prices).forEach(key => {
+      console.log(`  - ${key}: mua ${prices[key].buy}, bán ${prices[key].sell}`);
+    });
+
+    // Tự động tìm key phù hợp (flexible mapping)
+    const findPrice = (keywords) => {
+      const key = Object.keys(prices).find(k => 
+        keywords.every(keyword => k.includes(keyword))
+      );
+      return key ? prices[key] : { buy: null, sell: null };
+    };
+
+    // Chuẩn bị dữ liệu để insert với flexible key matching
     const priceData = {
       display_time: displayTime,
-      nhan_ep_vi_knp_9999_buy: prices.nhan_ep_vi_knp_9999?.buy || null,
-      nhan_ep_vi_knp_9999_sell: prices.nhan_ep_vi_knp_9999?.sell || null,
-      vang_trang_suc_9999_buy: prices.vang_trang_suc_9999?.buy || null,
-      vang_trang_suc_9999_sell: prices.vang_trang_suc_9999?.sell || null,
-      vang_trang_suc_999_buy: prices.vang_trang_suc_999?.buy || null,
-      vang_trang_suc_999_sell: prices.vang_trang_suc_999?.sell || null,
-      bac_thoi_1_luong_buy: prices.bac_thoi_kim_ngan_phuc_9991_luong_1l_2l_5l_10l?.buy || null,
-      bac_thoi_1_luong_sell: prices.bac_thoi_kim_ngan_phuc_9991_luong_1l_2l_5l_10l?.sell || null,
-      bac_mieng_1_luong_buy: prices.bac_mieng_1_luong_hinh_logo_kim_ngan_phuc?.buy || null,
-      bac_mieng_1_luong_sell: prices.bac_mieng_1_luong_hinh_logo_kim_ngan_phuc?.sell || null,
-      bac_thoi_2024_buy: prices.bac_thoi_kim_ngan_phuc_9991kilo_500gram__1_kilo_phien_ban_2024?.buy || null,
-      bac_thoi_2024_sell: prices.bac_thoi_kim_ngan_phuc_9991kilo_500gram__1_kilo_phien_ban_2024?.sell || null,
-      bac_thoi_2025_buy: prices.bac_thoi_kim_ngan_phuc_9991kilo_500gram__1_kilo_phien_ban_2025?.buy || null,
-      bac_thoi_2025_sell: prices.bac_thoi_kim_ngan_phuc_9991kilo_500gram__1_kilo_phien_ban_2025?.sell || null
+      nhan_ep_vi_knp_9999_buy: findPrice(['nhan', 'ep', 'vi']).buy,
+      nhan_ep_vi_knp_9999_sell: findPrice(['nhan', 'ep', 'vi']).sell,
+      vang_trang_suc_9999_buy: findPrice(['vang', 'trang', 'suc', '9999']).buy,
+      vang_trang_suc_9999_sell: findPrice(['vang', 'trang', 'suc', '9999']).sell,
+      vang_trang_suc_999_buy: findPrice(['vang', 'trang', 'suc', '999']).buy,
+      vang_trang_suc_999_sell: findPrice(['vang', 'trang', 'suc', '999']).sell,
+      bac_thoi_1_luong_buy: findPrice(['bac', 'thoi', '1', 'luong']).buy,
+      bac_thoi_1_luong_sell: findPrice(['bac', 'thoi', '1', 'luong']).sell,
+      bac_mieng_1_luong_buy: findPrice(['bac', 'mieng', '1', 'luong']).buy,
+      bac_mieng_1_luong_sell: findPrice(['bac', 'mieng', '1', 'luong']).sell,
+      bac_thoi_2024_buy: findPrice(['bac', 'thoi', '2024']).buy,
+      bac_thoi_2024_sell: findPrice(['bac', 'thoi', '2024']).sell,
+      bac_thoi_2025_buy: findPrice(['bac', 'thoi', '2025']).buy,
+      bac_thoi_2025_sell: findPrice(['bac', 'thoi', '2025']).sell
     };
 
     // Kiểm tra xem giá có thay đổi không
@@ -207,94 +213,6 @@ app.post('/api/gold-prices/fetch', async (req, res) => {
       error: 'Không thể lấy hoặc lưu dữ liệu',
       message: error.message 
     });
-  }
-});
-
-app.get('/api/gold-prices', async (req, res) => {
-  try {
-    // Kiểm tra cache
-    if (cache.data && cache.timestamp && (Date.now() - cache.timestamp < CACHE_DURATION)) {
-      console.log('Trả về dữ liệu từ cache');
-      return res.json(cache.data);
-    }
-
-    // Fetch từ Kim Ngân Phúc
-    const response = await axios.get('https://kimnganphuc.vn/gia-vang', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-
-    const $ = cheerio.load(response.data);
-    const prices = {};
-    let updateTime = null;
-
-    // Tìm thời gian cập nhật
-    $('*').each((i, el) => {
-      const text = $(el).text();
-      const match = text.match(/Cập nhật lúc (\d{2}:\d{2})\s+Ngày\s+(\d{2}\/\d{2}\/\d{4})/i);
-      if (match) {
-        updateTime = `${match[2]} ${match[1]}`;
-        return false; // break
-      }
-    });
-
-    // Parse bảng giá
-    $('table tr').each((index, row) => {
-      if (index === 0) return; // Skip header
-      
-      const cols = $(row).find('td');
-      if (cols.length >= 3) {
-        const name = $(cols[0]).text().trim();
-        const buyText = $(cols[1]).text().trim();
-        const sellText = $(cols[2]).text().trim();
-        
-        const buy = parseFloat(buyText.replace(/[,\.]/g, ''));
-        const sell = parseFloat(sellText.replace(/[,\.]/g, ''));
-        
-        if (name && !isNaN(buy) && !isNaN(sell)) {
-          const key = name.toLowerCase()
-            .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
-            .replace(/[èéẹẻẽêềếệểễ]/g, 'e')
-            .replace(/[ìíịỉĩ]/g, 'i')
-            .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, 'o')
-            .replace(/[ùúụủũưừứựửữ]/g, 'u')
-            .replace(/[ỳýỵỷỹ]/g, 'y')
-            .replace(/đ/g, 'd')
-            .replace(/[^a-z0-9]/g, '_');
-          
-          prices[key] = { name, buy, sell };
-        }
-      }
-    });
-
-    const result = {
-      prices,
-      updateTime: updateTime || new Date().toLocaleString('vi-VN'),
-      fetchedAt: new Date().toISOString()
-    };
-
-    // Lưu vào cache
-    cache.data = result;
-    cache.timestamp = Date.now();
-
-    res.json(result);
-    
-  } catch (error) {
-    console.error('Error fetching gold prices:', error.message);
-    res.status(500).json({ 
-      error: 'Không thể lấy dữ liệu giá vàng',
-      message: error.message 
-    });
-  }
-});
-
-app.get('/api/cron/update-prices', async (req, res) => {
-  try {
-    await axios.post(`http://localhost:${PORT}/api/gold-prices/fetch`);
-    res.json({ success: true, message: 'Prices updated' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
