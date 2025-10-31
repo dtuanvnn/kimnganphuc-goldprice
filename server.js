@@ -225,6 +225,16 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Thêm vào server.js
+app.get('/api/cron/update-prices', async (req, res) => {
+  try {
+    await axios.post(`http://localhost:${PORT}/api/gold-prices/fetch`);
+    res.json({ success: true, message: 'Prices updated' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server đang chạy tại http://localhost:${PORT}`);
   console.log(`📊 API endpoints:`);
@@ -232,4 +242,5 @@ app.listen(PORT, () => {
   console.log(`   - GET  /api/gold-prices/history (get all history)`);
   console.log(`   - GET  /api/gold-prices/latest (get latest price)`);
   console.log(`   - GET  /api/health (health check)`);
+  console.log(`   - GET  /api/cron/update-prices (cron update prices)`);
 });
