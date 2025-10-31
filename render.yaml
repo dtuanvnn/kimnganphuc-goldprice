@@ -1,0 +1,29 @@
+# render.yaml - Infrastructure as Code cho Render.com
+# Đặt file này ở root của repo
+
+services:
+  - type: web
+    name: gold-price-api
+    env: node
+    region: singapore  # Gần Việt Nam nhất
+    plan: free
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    healthCheckPath: /api/health
+    
+    # Environment Variables từ GitHub Secrets
+    envVars:
+      - key: NODE_ENV
+        value: production
+      
+      - key: PORT
+        value: 3001
+      
+      - key: SUPABASE_URL
+        sync: false  # Sẽ set thủ công trong Render Dashboard hoặc từ GitHub
+      
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false  # BÍ MẬT - set từ GitHub Secrets
+    
+    # Auto-deploy khi push lên GitHub
+    autoDeploy: true
