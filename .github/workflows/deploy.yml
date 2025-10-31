@@ -20,12 +20,10 @@ jobs:
     
     - name: Install dependencies
       run: |
-        cd backend
         npm ci
     
     - name: Run tests (optional)
       run: |
-        cd backend
         npm test --if-present
     
     - name: Deploy to Render
